@@ -310,6 +310,34 @@ textarea.modal-inp{resize:vertical;min-height:80px}
 @keyframes wave{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
 .voice-txt{font-size:10px;color:var(--a3);font-family:'Share Tech Mono',monospace;flex:1}
 
+/* VOICE CONVERSATION MODE */
+.voice-conv-modal{position:fixed;inset:0;background:rgba(3,5,7,.96);z-index:9500;display:none;align-items:center;justify-content:center;flex-direction:column}
+.voice-conv-modal.active{display:flex}
+.vc-orb{width:120px;height:120px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-bottom:24px}
+.vc-orb-inner{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,rgba(0,255,136,.25),rgba(0,204,255,.15));border:2px solid rgba(0,255,136,.5);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--a);transition:all .3s;box-shadow:0 0 30px rgba(0,255,136,.2)}
+.vc-orb::before,.vc-orb::after{content:'';position:absolute;border-radius:50%;border:1.5px solid rgba(0,255,136,.15);animation:vc-pulse 2s ease-out infinite}
+.vc-orb::before{inset:-12px;animation-delay:.3s}
+.vc-orb::after{inset:-24px;animation-delay:.6s}
+.vc-orb.listening .vc-orb-inner{background:linear-gradient(135deg,rgba(255,68,102,.3),rgba(255,100,50,.2));border-color:rgba(255,68,102,.7);box-shadow:0 0 40px rgba(255,68,102,.35);color:var(--a3)}
+.vc-orb.listening::before,.vc-orb.listening::after{border-color:rgba(255,68,102,.2);animation:vc-pulse-red 1s ease-out infinite}
+.vc-orb.speaking .vc-orb-inner{background:linear-gradient(135deg,rgba(0,204,255,.3),rgba(0,150,255,.2));border-color:rgba(0,204,255,.7);box-shadow:0 0 40px rgba(0,204,255,.35);color:var(--a2)}
+@keyframes vc-pulse{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.5);opacity:0}}
+@keyframes vc-pulse-red{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.6);opacity:0}}
+.vc-status{font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--tx2);margin-bottom:8px;min-height:20px;text-align:center}
+.vc-transcript{font-size:12px;color:var(--tx3);max-width:300px;text-align:center;line-height:1.6;min-height:36px;padding:8px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--bdr)}
+.vc-controls{display:flex;gap:12px;margin-top:20px}
+.vc-ctrl-btn{padding:10px 20px;border-radius:10px;border:1px solid var(--bdr2);background:var(--bg3);color:var(--tx2);font-size:12px;cursor:pointer;font-family:'Cairo',sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
+.vc-ctrl-btn:hover{border-color:var(--a);color:var(--a)}
+.vc-ctrl-btn.end{border-color:rgba(255,68,102,.4);color:var(--a3)}
+.vc-ctrl-btn.end:hover{background:rgba(255,68,102,.1)}
+.vc-waves{display:flex;align-items:center;gap:3px;height:30px;margin-bottom:10px}
+.vc-wave-bar{width:4px;background:var(--a2);border-radius:2px;height:6px;transition:height .1s}
+.vc-wave-bar.active{animation:vc-wave .4s ease-in-out infinite}
+.vc-wave-bar:nth-child(1){animation-delay:.0s}.vc-wave-bar:nth-child(2){animation-delay:.07s}.vc-wave-bar:nth-child(3){animation-delay:.14s}
+.vc-wave-bar:nth-child(4){animation-delay:.21s}.vc-wave-bar:nth-child(5){animation-delay:.28s}.vc-wave-bar:nth-child(6){animation-delay:.35s}
+.vc-wave-bar:nth-child(7){animation-delay:.14s}.vc-wave-bar:nth-child(8){animation-delay:.07s}
+@keyframes vc-wave{0%,100%{height:4px}50%{height:22px}}
+
 /* INPUT AREA */
 .inp-area{background:rgba(9,13,20,.98);backdrop-filter:blur(12px);border-top:1px solid var(--bdr);padding:8px 10px;position:relative;z-index:10;flex-shrink:0}
 .af-prev{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px}
@@ -833,6 +861,7 @@ textarea::placeholder{color:var(--tx3)}
           <textarea id="inp" placeholder="اسألني أي شيء..." rows="1" onkeydown="onKey(event)" oninput="onInp(this)"></textarea>
           <div class="inp-btns">
             <div class="ibtn rec" id="voice-btn" onclick="toggleVoice()" title="تسجيل صوتي"><i class="fa-solid fa-microphone"></i></div>
+            <div class="ibtn" id="voice-conv-btn" onclick="openVoiceConv()" title="محادثة صوتية" style="color:var(--a2)"><i class="fa-solid fa-phone"></i></div>
             <div class="ibtn" title="إرفاق"><i class="fa-solid fa-paperclip"></i><input type="file" multiple accept="image/*,text/*,.pdf,.json,.xml,.csv,.js,.py,.html,.css,.md,.txt,.ts,.jsx,.tsx,.vue,.php,.go,.rs,.sql" onchange="addFiles(this)" id="attinp"></div>
           </div>
         </div>
@@ -850,6 +879,26 @@ textarea::placeholder{color:var(--tx3)}
 <!-- SCROLL TO TOP -->
 <div class="scroll-top" id="scroll-top" onclick="scrollToTop()"><i class="fa-solid fa-arrow-up"></i></div>
 <div class="toast" id="toast"></div>
+
+<!-- VOICE CONVERSATION MODAL -->
+<div class="voice-conv-modal" id="vcModal">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--a);letter-spacing:3px;margin-bottom:24px;opacity:.7">SUKUNA X — VOICE MODE</div>
+  <div class="vc-waves" id="vc-waves">
+    <div class="vc-wave-bar" id="vwb1"></div><div class="vc-wave-bar" id="vwb2"></div>
+    <div class="vc-wave-bar" id="vwb3"></div><div class="vc-wave-bar" id="vwb4"></div>
+    <div class="vc-wave-bar" id="vwb5"></div><div class="vc-wave-bar" id="vwb6"></div>
+    <div class="vc-wave-bar" id="vwb7"></div><div class="vc-wave-bar" id="vwb8"></div>
+  </div>
+  <div class="vc-orb" id="vcOrb" onclick="vcOrbClick()">
+    <div class="vc-orb-inner" id="vcOrbInner"><i class="fa-solid fa-microphone"></i></div>
+  </div>
+  <div class="vc-status" id="vcStatus">اضغط للبدء</div>
+  <div class="vc-transcript" id="vcTranscript">...</div>
+  <div class="vc-controls">
+    <button class="vc-ctrl-btn" onclick="vcToggleMute()" id="vcMuteBtn"><i class="fa-solid fa-volume-xmark"></i> كتم الرد</button>
+    <button class="vc-ctrl-btn end" onclick="closeVoiceConv()"><i class="fa-solid fa-xmark"></i> إنهاء</button>
+  </div>
+</div>
 
 <script>
 // ════════════════════════════════════════
@@ -1285,6 +1334,199 @@ function stopVoice(){
   isRecording=false;
   document.getElementById('voice-btn').classList.remove('active');
   document.getElementById('voice-indicator').style.display='none';
+}
+
+// ════════════════════════════════════════
+// VOICE CONVERSATION MODE
+// ════════════════════════════════════════
+var vc={
+  active:false, listening:false, speaking:false, muted:false,
+  rec:null, waveInterval:null, autoRestartTimer:null
+};
+
+function openVoiceConv(){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('المتصفح لا يدعم التسجيل الصوتي');return}
+  document.getElementById('vcModal').classList.add('active');
+  vc.active=true;
+  vcSetStatus('اضغط الكرة للبدء','idle');
+  vcSetTranscript('...');
+}
+
+function closeVoiceConv(){
+  vc.active=false;
+  vcStopListening();
+  window.speechSynthesis.cancel();
+  clearInterval(vc.waveInterval);
+  clearTimeout(vc.autoRestartTimer);
+  document.getElementById('vcModal').classList.remove('active');
+  vcSetOrb('idle');
+}
+
+function vcOrbClick(){
+  if(vc.speaking){
+    // إيقاف الكلام والاستماع مجدداً
+    window.speechSynthesis.cancel();
+    vc.speaking=false;
+    vcStartListening();
+  } else if(vc.listening){
+    vcStopListening();
+    vcSetStatus('توقف','idle');
+  } else {
+    vcStartListening();
+  }
+}
+
+function vcStartListening(){
+  if(!vc.active) return;
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  vcStopListening();
+  vc.rec=new SR();
+  vc.rec.lang='ar-SA';
+  vc.rec.interimResults=true;
+  vc.rec.continuous=false;
+  vc.listening=true;
+  vcSetOrb('listening');
+  vcSetStatus('جاري الاستماع...','listening');
+  vcSetTranscript('...');
+  vcStartWave(true);
+
+  vc.rec.onresult=function(e){
+    var interim='', final='';
+    for(var i=0;i<e.results.length;i++){
+      if(e.results[i].isFinal) final+=e.results[i][0].transcript;
+      else interim+=e.results[i][0].transcript;
+    }
+    vcSetTranscript(final||interim||'...');
+    if(final) vcSetTranscript(final);
+  };
+
+  vc.rec.onend=function(){
+    var txt=document.getElementById('vcTranscript').textContent;
+    vc.listening=false;
+    if(txt && txt!=='...' && txt.trim().length>1 && vc.active){
+      vcHandleUserSpeech(txt.trim());
+    } else if(vc.active){
+      vcSetStatus('لم أسمع شيئاً - اضغط للمحاولة','idle');
+      vcSetOrb('idle');
+      vcStartWave(false);
+    }
+  };
+
+  vc.rec.onerror=function(e){
+    vc.listening=false;
+    vcSetOrb('idle');
+    vcStartWave(false);
+    if(e.error==='no-speech'){vcSetStatus('لم أسمع شيئاً','idle')}
+    else{vcSetStatus('خطأ: '+e.error,'idle')}
+  };
+
+  try{vc.rec.start()}catch(e){vc.listening=false;vcSetOrb('idle')}
+}
+
+function vcStopListening(){
+  if(vc.rec){try{vc.rec.stop()}catch(e){}}
+  vc.rec=null;
+  vc.listening=false;
+}
+
+async function vcHandleUserSpeech(txt){
+  if(!vc.active) return;
+  vcSetOrb('idle');
+  vcStartWave(false);
+  vcSetStatus('يفكر...','idle');
+  vcSetTranscript(txt);
+
+  // add to chat silently
+  chatMsgs.push({role:'user',content:txt});
+  var u=getUser();
+  if(u){var db=getDB();db.questions.push({q:txt,uid:u.id,uname:u.name,ts:Date.now()});var uu=db.users.find(function(x){return x.id===u.id});if(uu){uu.msgs=(uu.msgs||0)+1;uu.lastSeen=Date.now()}saveDB(db)}
+
+  var groqMsgs=[{role:'system',content:buildSys()+'\nأنت في وضع المحادثة الصوتية. ردودك يجب أن تكون قصيرة ومناسبة للكلام (2-4 جمل فقط). لا تستخدم markdown أو رموز خاصة.'}];
+  chatMsgs.slice(-10).forEach(function(m){groqMsgs.push(m)});
+
+  try{
+    var res=await groqFetch({model:GROQ_TXT,messages:groqMsgs,max_tokens:300,temperature:currentTemp});
+    if(!res.ok){var ej=await res.json();throw new Error((ej.error&&ej.error.message)||'Groq error')}
+    var j=await res.json();
+    var reply=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content||'عذراً، لم أفهم';
+    chatMsgs.push({role:'assistant',content:reply});
+    // add to chat UI
+    addUMsg(txt,[],[]);
+    var aid=addAIMsg('');updAIMsg(aid,reply);
+    tokens+=reply.length/4;updCtx();
+    // speak reply
+    if(!vc.muted && vc.active){
+      vcSpeak(reply);
+    } else if(vc.active){
+      vcSetStatus('اضغط للبدء','idle');
+      vcSetOrb('idle');
+    }
+  }catch(e){
+    if(vc.active){vcSetStatus('خطأ - أعد المحاولة','idle');vcSetOrb('idle')}
+  }
+}
+
+function vcSpeak(txt){
+  if(!vc.active) return;
+  var clean=txt.replace(/[#*`_~\[\]]/g,'').slice(0,600);
+  var u=new SpeechSynthesisUtterance(clean);
+  u.lang='ar-SA';u.rate=1.05;u.pitch=1;
+  vc.speaking=true;
+  vcSetOrb('speaking');
+  vcSetStatus('يتكلم...','speaking');
+  vcStartWave(true);
+  u.onend=function(){
+    vc.speaking=false;
+    vcStartWave(false);
+    if(vc.active){
+      vcSetTranscript('...');
+      vc.autoRestartTimer=setTimeout(function(){
+        if(vc.active) vcStartListening();
+      },600);
+    }
+  };
+  u.onerror=function(){
+    vc.speaking=false;
+    vcStartWave(false);
+    if(vc.active) vcStartListening();
+  };
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+function vcToggleMute(){
+  vc.muted=!vc.muted;
+  var btn=document.getElementById('vcMuteBtn');
+  if(vc.muted){
+    btn.innerHTML='<i class="fa-solid fa-volume-high"></i> تشغيل الرد';
+    btn.style.borderColor='rgba(255,170,0,.4)';btn.style.color='var(--a4)';
+    if(vc.speaking){window.speechSynthesis.cancel();vc.speaking=false;if(vc.active)vcStartListening()}
+  } else {
+    btn.innerHTML='<i class="fa-solid fa-volume-xmark"></i> كتم الرد';
+    btn.style.borderColor='';btn.style.color='';
+  }
+}
+
+function vcSetOrb(state){
+  var orb=document.getElementById('vcOrb');
+  orb.className='vc-orb';
+  if(state==='listening')orb.classList.add('listening');
+  else if(state==='speaking')orb.classList.add('speaking');
+  var icon=document.getElementById('vcOrbInner');
+  if(state==='listening')icon.innerHTML='<i class="fa-solid fa-ear-listen"></i>';
+  else if(state==='speaking')icon.innerHTML='<i class="fa-solid fa-volume-high"></i>';
+  else icon.innerHTML='<i class="fa-solid fa-microphone"></i>';
+}
+
+function vcSetStatus(txt){document.getElementById('vcStatus').textContent=txt}
+function vcSetTranscript(txt){document.getElementById('vcTranscript').textContent=txt}
+
+function vcStartWave(on){
+  for(var i=1;i<=8;i++){
+    var b=document.getElementById('vwb'+i);
+    if(b){if(on)b.classList.add('active');else b.classList.remove('active')}
+  }
 }
 
 // ════════════════════════════════════════
