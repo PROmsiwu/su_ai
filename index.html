@@ -855,10 +855,19 @@ textarea::placeholder{color:var(--tx3)}
 // ════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════
-var GROQ_KEY  = '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';
+// ═══ API CONFIGURATION ═══
+var GROQ_KEYS = [
+  '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'
+  // أضف مفاتيح إضافية هنا لو عندك: ,'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','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'
+];
+var GROQ_KEY_IDX = 0;
+function getGroqKey(){ return GROQ_KEYS[GROQ_KEY_IDX % GROQ_KEYS.length]; }
+function rotateGroqKey(){ GROQ_KEY_IDX++; console.warn('Rotated to Groq key #'+GROQ_KEY_IDX); }
+
 var GROQ_URL  = 'https://api.groq.com/openai/v1/chat/completions';
 var GROQ_TXT  = 'llama-3.3-70b-versatile';
-var GROQ_VIS  = 'llama-3.2-11b-vision-preview';
+// llama-3.2-11b-vision-preview متوقف - تم الاستبدال بـ meta-llama/llama-4-scout-17b-16e-instruct
+var GROQ_VIS  = 'meta-llama/llama-4-scout-17b-16e-instruct';
 var WA_LINK   = 'https://chat.whatsapp.com/FzbZrSCQ3jJ8WzKZcPJdxM?mode=gi_t';
 
 var MOODS = {
@@ -1335,16 +1344,32 @@ async function send(){
   chatMsgs.slice(-20).forEach(function(m){groqMsgs.push(m)});
   var model=(hasImgs&&isnap.length>0)?GROQ_VIS:GROQ_TXT;
 
+  // ─── Groq fetch مع Retry وتدوير المفاتيح عند Rate Limit ───
+  async function groqFetch(body){
+    var maxTries=GROQ_KEYS.length*2;
+    for(var attempt=0;attempt<maxTries;attempt++){
+      var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+getGroqKey()},body:JSON.stringify(body)});
+      if(res.status===429){
+        rotateGroqKey();
+        var wa=parseFloat((res.headers&&res.headers.get&&res.headers.get('retry-after'))||'5');
+        await new Promise(function(r){setTimeout(r,Math.min(wa,10)*1000)});
+        continue;
+      }
+      return res;
+    }
+    throw new Error('تجاوزت حد الطلبات - انتظر دقيقة ثم أعد المحاولة');
+  }
+
   try{
     var reply='';
     if(hasImgs){
-      var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+GROQ_KEY},body:JSON.stringify({model:model,messages:groqMsgs,max_tokens:2048,temperature:currentTemp})});
+      var res=await groqFetch({model:model,messages:groqMsgs,max_tokens:2048,temperature:currentTemp});
       rmTyping(tid);
       if(!res.ok){var ej=await res.json();throw new Error((ej.error&&ej.error.message)||'Groq '+res.status)}
       var j2=await res.json();reply=j2.choices&&j2.choices[0]&&j2.choices[0].message&&j2.choices[0].message.content||'تعذّر الرد';
       tokens+=reply.length/4;updCtx();var aid=addAIMsg('');updAIMsg(aid,reply);
     }else{
-      var res2=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+GROQ_KEY},body:JSON.stringify({model:model,messages:groqMsgs,max_tokens:4096,temperature:currentTemp,stream:true})});
+      var res2=await groqFetch({model:model,messages:groqMsgs,max_tokens:4096,temperature:currentTemp,stream:true});
       rmTyping(tid);
       if(!res2.ok){var ej2=await res2.json();throw new Error((ej2.error&&ej2.error.message)||'Groq '+res2.status)}
       var aid2=addAIMsg('');
@@ -1366,7 +1391,12 @@ async function send(){
     if(imgMatch)await generateImage(imgMatch[1].trim());
   }catch(e){
     rmTyping(tid);
-    addAIMsg('<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> <strong>خطأ:</strong> '+e.message+'</div>');
+    var errMsg=e.message||'خطأ غير معروف';
+    if(errMsg.toLowerCase().includes('decommission')||errMsg.toLowerCase().includes('no longer supported')){
+      errMsg='نموذج الذكاء الاصطناعي قديم - تم تحديث النموذج. أعد إرسال رسالتك.';
+      GROQ_VIS='meta-llama/llama-4-scout-17b-16e-instruct';
+    }
+    addAIMsg('<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> <strong>خطأ:</strong> '+errMsg+'</div>');
     playSound('error');
   }finally{loading=false;document.getElementById('sndbtn').disabled=false}
 }
