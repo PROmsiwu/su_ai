@@ -1273,45 +1273,99 @@ function buildFileContent(f){
 // ════════════════════════════════════════
 // IMAGE GENERATION — Pollinations AI
 // ════════════════════════════════════════
+// ══ IMAGE GENERATION ══
+// مفتاح Hugging Face المجاني - غيّره من hf.co/settings/tokens
+var HF_TOKEN = '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';  // اختياري - بيشتغل بدونه لكن أبطأ
+
 async function generateImage(prompt){
   incStat('gen');
   var genId=addGenMsg(prompt);
   var bEl=document.getElementById('b'+genId);
-  if(bEl)bEl.innerHTML='<div class="gen-loading"><div class="gen-spinner"></div><div style="flex:1"><div><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--a5)"></i> جاري الإبداع... (10-30 ثانية)</div><div style="font-size:10px;color:var(--tx3);margin-top:3px">'+esc(prompt)+'</div><div class="gen-progress"><div class="gen-progress-f"></div></div></div></div>';
+  if(bEl)bEl.innerHTML='<div class="gen-loading"><div class="gen-spinner"></div><div style="flex:1"><div><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--a5)"></i> جاري الإبداع... (15-40 ثانية)</div><div style="font-size:10px;color:var(--tx3);margin-top:3px">'+esc(prompt)+'</div><div class="gen-progress"><div class="gen-progress-f"></div></div></div></div>';
 
   var seed=Math.floor(Math.random()*99999999);
   var encoded=encodeURIComponent(prompt);
 
-  // قائمة مصادر الصور - بتجرب واحدة واحدة
-  var sources=[
-    'https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux&nologo=true&enhance=true&private=true&nofeed=true',
-    'https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=turbo&nologo=true',
-    'https://pollinations.ai/p/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux',
-    'https://image.pollinations.ai/prompt/'+encoded+'?seed='+seed,
+  // ── الطريقة 1: Hugging Face FLUX (أفضل جودة) ──
+  async function tryHuggingFace(){
+    var headers={'Content-Type':'application/json'};
+    if(HF_TOKEN) headers['Authorization']='Bearer '+HF_TOKEN;
+    var res=await fetch('https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',{
+      method:'POST',
+      headers:headers,
+      body:JSON.stringify({inputs:prompt,parameters:{seed:seed,num_inference_steps:4,width:1024,height:1024}})
+    });
+    if(!res.ok) throw new Error('HF '+res.status);
+    var blob=await res.blob();
+    if(blob.size<1000) throw new Error('empty image');
+    return URL.createObjectURL(blob);
+  }
+
+  // ── الطريقة 2: Pollinations (fallback) ──
+  async function tryPollinations(){
+    var urls=[
+      'https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux&nologo=true&nofeed=true',
+      'https://image.pollinations.ai/prompt/'+encoded+'?width=768&height=768&seed='+seed+'&model=turbo',
+      'https://image.pollinations.ai/prompt/'+encoded+'?seed='+seed,
+    ];
+    for(var i=0;i<urls.length;i++){
+      var ok=await new Promise(function(resolve){
+        var img=new Image();img.crossOrigin='anonymous';
+        var t=setTimeout(function(){resolve(false)},30000);
+        img.onload=function(){clearTimeout(t);resolve(urls[i])};
+        img.onerror=function(){clearTimeout(t);resolve(false)};
+        img.src=urls[i];
+      });
+      if(ok) return ok;
+    }
+    throw new Error('pollinations failed');
+  }
+
+  // ── الطريقة 3: Stable Diffusion عبر HF ──
+  async function trySD(){
+    var headers={'Content-Type':'application/json'};
+    if(HF_TOKEN) headers['Authorization']='Bearer '+HF_TOKEN;
+    var res=await fetch('https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',{
+      method:'POST',headers:headers,
+      body:JSON.stringify({inputs:prompt+', high quality, 4k, detailed',parameters:{seed:seed}})
+    });
+    if(!res.ok) throw new Error('SD '+res.status);
+    var blob=await res.blob();
+    if(blob.size<1000) throw new Error('empty');
+    return URL.createObjectURL(blob);
+  }
+
+  var finalUrl=null;
+  var lastErr='';
+
+  // جرب الطرق بالترتيب
+  var methods=[
+    {name:'FLUX AI',fn:tryHuggingFace},
+    {name:'Pollinations',fn:tryPollinations},
+    {name:'Stable Diffusion',fn:trySD},
   ];
 
-  function trySource(idx){
-    if(idx>=sources.length){
-      var b=document.getElementById('b'+genId);
-      if(b)b.innerHTML='<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> تعذّر توليد الصورة - تأكد من الإنترنت وأعد المحاولة</div>'+
-        '<button onclick="generateImage(\''+prompt.replace(/'/g,"\\'")+'\')" style="margin-top:8px;padding:6px 14px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25);border-radius:7px;color:var(--a);font-size:11px;cursor:pointer;font-family:\'Cairo\',sans-serif"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button>';
-      return;
-    }
-    var img=new Image();
-    img.crossOrigin='anonymous';
-    // timeout بعد 45 ثانية جرب المصدر التالي
-    var timer=setTimeout(function(){img.src='';trySource(idx+1)},45000);
-    img.onload=function(){
-      clearTimeout(timer);
-      updGenMsg(genId,prompt,sources[idx]);
-    };
-    img.onerror=function(){
-      clearTimeout(timer);
-      trySource(idx+1);
-    };
-    img.src=sources[idx];
+  for(var m=0;m<methods.length;m++){
+    try{
+      var b2=document.getElementById('b'+genId);
+      if(b2){
+        var loadDiv=b2.querySelector('.gen-loading div');
+        if(loadDiv) loadDiv.innerHTML='<i class="fa-solid fa-wand-magic-sparkles" style="color:var(--a5)"></i> جاري الإبداع عبر '+methods[m].name+'...';
+      }
+      finalUrl=await methods[m].fn();
+      break;
+    }catch(e){lastErr=e.message;finalUrl=null;}
   }
-  trySource(0);
+
+  if(finalUrl){
+    updGenMsg(genId,prompt,finalUrl);
+  } else {
+    var b=document.getElementById('b'+genId);
+    if(b)b.innerHTML=
+      '<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> تعذّر توليد الصورة ('+lastErr+')</div>'+
+      '<div style="font-size:10px;color:var(--tx3);margin-top:6px">💡 تأكد من الاتصال بالإنترنت أو أضف HF_TOKEN في الكود</div>'+
+      '<button onclick="generateImage(\''+prompt.replace(/'/g,"\'")+'\')" style="margin-top:8px;padding:6px 14px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25);border-radius:7px;color:var(--a);font-size:11px;cursor:pointer;font-family:\'Cairo\',sans-serif"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button>';
+  }
 }
 function addGenMsg(prompt){
   var c=document.getElementById('msgs'),id='m'+Date.now(),d=document.createElement('div');
