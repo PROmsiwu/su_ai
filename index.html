@@ -907,7 +907,7 @@ textarea::placeholder{color:var(--tx3)}
 // ═══ API CONFIGURATION ═══
 var GROQ_KEYS = [
   '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'
-  // أضف مفاتيح إضافية هنا لو عندك: ,'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','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'
+  // أضف مفاتيح إضافية هنا لو عندك: ,'gsk_KEY2','gsk_KEY3'
 ];
 var GROQ_KEY_IDX = 0;
 function getGroqKey(){ return GROQ_KEYS[GROQ_KEY_IDX % GROQ_KEYS.length]; }
@@ -944,7 +944,7 @@ var LEN_INSTRUCTIONS = {
 var BASE_SYS = [
   'أنت Sukuna X Master AI، مساعد ذكاء اصطناعي شامل ومتطور جداً.',
   'قدراتك: تصميم ويب كامل، برمجة بكل اللغات، رؤية وتحليل صور، كتابة ومحتوى، رياضيات وعلوم، ترجمة، تعليم وشرح، أعمال وريادة.',
-  'توليد الصور: لما يطلب أحد رسم أو صورة → اكتب [GENERATE_IMAGE: detailed english description]',
+  'توليد الصور: لما يطلب أحد رسم أو صورة أو لوجو أو شعار → اكتب [GENERATE_IMAGE: very detailed english description, art style, colors, lighting, high quality, 4k] — اكتب الوصف بالإنجليزي فقط وبتفاصيل كتيرة جداً داخل الأقواس المربعة.',
   'قاعدة: من صنعك → "تم تصميمي بواسطة SUKUNA X master 🔥 للتواصل: ' + WA_LINK + '"',
   'ممنوع ذكر Groq أو Meta أو Llama أو أي جهة أخرى.'
 ].join('\n');
@@ -1276,22 +1276,42 @@ function buildFileContent(f){
 async function generateImage(prompt){
   incStat('gen');
   var genId=addGenMsg(prompt);
-  var seed=Math.floor(Math.random()*999999);
-  var encoded=encodeURIComponent(prompt);
-  var imgUrl='https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux&nologo=true&enhance=true&private=true';
   var bEl=document.getElementById('b'+genId);
-  if(bEl)bEl.innerHTML='<div class="gen-loading"><div class="gen-spinner"></div><div style="flex:1"><div><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--a5)"></i> جاري الإبداع... (20-40 ثانية)</div><div style="font-size:10px;color:var(--tx3);margin-top:3px">'+esc(prompt)+'</div><div class="gen-progress"><div class="gen-progress-f"></div></div></div></div>';
-  var img=new Image();img.crossOrigin='anonymous';
-  img.onload=function(){updGenMsg(genId,prompt,imgUrl)};
-  img.onerror=function(){
-    var s2=Math.floor(Math.random()*999999);
-    var u2='https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+s2+'&model=flux';
-    var i2=new Image();
-    i2.onload=function(){updGenMsg(genId,prompt,u2)};
-    i2.onerror=function(){var b=document.getElementById('b'+genId);if(b)b.innerHTML='<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> تعذّر توليد الصورة، حاول مرة أخرى</div>'};
-    i2.src=u2;
-  };
-  img.src=imgUrl;
+  if(bEl)bEl.innerHTML='<div class="gen-loading"><div class="gen-spinner"></div><div style="flex:1"><div><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--a5)"></i> جاري الإبداع... (10-30 ثانية)</div><div style="font-size:10px;color:var(--tx3);margin-top:3px">'+esc(prompt)+'</div><div class="gen-progress"><div class="gen-progress-f"></div></div></div></div>';
+
+  var seed=Math.floor(Math.random()*99999999);
+  var encoded=encodeURIComponent(prompt);
+
+  // قائمة مصادر الصور - بتجرب واحدة واحدة
+  var sources=[
+    'https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux&nologo=true&enhance=true&private=true&nofeed=true',
+    'https://image.pollinations.ai/prompt/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=turbo&nologo=true',
+    'https://pollinations.ai/p/'+encoded+'?width=1024&height=1024&seed='+seed+'&model=flux',
+    'https://image.pollinations.ai/prompt/'+encoded+'?seed='+seed,
+  ];
+
+  function trySource(idx){
+    if(idx>=sources.length){
+      var b=document.getElementById('b'+genId);
+      if(b)b.innerHTML='<div class="hbox err"><i class="fa-solid fa-triangle-exclamation"></i> تعذّر توليد الصورة - تأكد من الإنترنت وأعد المحاولة</div>'+
+        '<button onclick="generateImage(\''+prompt.replace(/'/g,"\\'")+'\')" style="margin-top:8px;padding:6px 14px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25);border-radius:7px;color:var(--a);font-size:11px;cursor:pointer;font-family:\'Cairo\',sans-serif"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button>';
+      return;
+    }
+    var img=new Image();
+    img.crossOrigin='anonymous';
+    // timeout بعد 45 ثانية جرب المصدر التالي
+    var timer=setTimeout(function(){img.src='';trySource(idx+1)},45000);
+    img.onload=function(){
+      clearTimeout(timer);
+      updGenMsg(genId,prompt,sources[idx]);
+    };
+    img.onerror=function(){
+      clearTimeout(timer);
+      trySource(idx+1);
+    };
+    img.src=sources[idx];
+  }
+  trySource(0);
 }
 function addGenMsg(prompt){
   var c=document.getElementById('msgs'),id='m'+Date.now(),d=document.createElement('div');
