@@ -442,6 +442,55 @@ textarea::placeholder{color:var(--tx3)}
 }
 @media(min-width:769px){.menu-btn{display:none!important}}
 </style>
+<!-- Firebase SDK -->
+<script>
+(function(){
+  function loadScript(src, cb){
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = function(){ cb(null); };
+    s.onerror = function(){ cb(new Error('failed')); };
+    document.head.appendChild(s);
+  }
+
+  // نحمل app أولاً، بعدين database بالترتيب
+  function loadFirebase(appSrc, dbSrc, label){
+    loadScript(appSrc, function(err){
+      if(err){ console.warn('Firebase app load failed from ' + label); return; }
+      loadScript(dbSrc, function(err2){
+        if(err2){ console.warn('Firebase database load failed from ' + label); }
+        else { console.log('Firebase SDK loaded from ' + label); }
+      });
+    });
+  }
+
+  // جرب gstatic أولاً، لو فشل الـ app جرب jsdelivr
+  var s = document.createElement('script');
+  s.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
+  s.onload = function(){
+    // app اتحمل من gstatic، حمل database من jsdelivr مباشرة (أكثر موثوقية)
+    var s2 = document.createElement('script');
+    s2.src = 'https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-database-compat.min.js';
+    s2.onload = function(){ console.log('Firebase ready ✓'); };
+    s2.onerror = function(){
+      // fallback database من gstatic
+      var s3 = document.createElement('script');
+      s3.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';
+      document.head.appendChild(s3);
+    };
+    document.head.appendChild(s2);
+  };
+  s.onerror = function(){
+    // app فشل من gstatic، حمل الاتنين من jsdelivr
+    loadFirebase(
+      'https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.min.js',
+      'https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-database-compat.min.js',
+      'jsdelivr'
+    );
+  };
+  document.head.appendChild(s);
+})();
+</script>
 </head>
 <body>
 
@@ -1022,12 +1071,56 @@ function buildSys(){
 })();
 
 // ════════════════════════════════════════
-// STORAGE
+// FIREBASE CONFIG & INIT
 // ════════════════════════════════════════
-function getDB(){try{return JSON.parse(localStorage.getItem('sxm_db')||'null')||{users:[],questions:[]}}catch(e){return{users:[],questions:[]}}}
-function saveDB(db){try{localStorage.setItem('sxm_db',JSON.stringify(db))}catch(e){}}
+var fbDB = null;
+var fbConfig = {
+  apiKey: "AIzaSyCd6mOpEJyiUSAAhmm2NbhT80MMY0UQJcc",
+  authDomain: "project-fe025bb5-b1cc-4b8f-93e.firebaseapp.com",
+  databaseURL: "https://project-fe025bb5-b1cc-4b8f-93e-default-rtdb.firebaseio.com",
+  projectId: "project-fe025bb5-b1cc-4b8f-93e",
+  storageBucket: "project-fe025bb5-b1cc-4b8f-93e.firebasestorage.app",
+  messagingSenderId: "148069353954",
+  appId: "1:148069353954:web:783adf7e8a0c796393d1bb"
+};
+function initFirebase(){
+  try{
+    if(typeof firebase === 'undefined') throw new Error('SDK not loaded');
+    if(!firebase.apps.length) firebase.initializeApp(fbConfig);
+    fbDB = firebase.database();
+    console.log('Firebase connected ✓');
+  } catch(e){ console.warn('Firebase init failed:', e.message); fbDB = null; }
+}
+function fbRef(path){ return fbDB ? fbDB.ref(path) : null; }
+
+// ══ USER (sessionStorage محلي) ══
 function getUser(){try{return JSON.parse(sessionStorage.getItem('sxm_u')||'null')}catch(e){return null}}
 function setUser(u){try{sessionStorage.setItem('sxm_u',JSON.stringify(u))}catch(e){}}
+
+// ══ DB: قراءة/كتابة Firebase ══
+function getDB(){
+  // fallback محلي للسرعة
+  try{return JSON.parse(localStorage.getItem('sxm_db')||'null')||{users:[],questions:[]}}catch(e){return{users:[],questions:[]}}
+}
+function saveDB(db){
+  // حفظ محلي فوري
+  try{localStorage.setItem('sxm_db',JSON.stringify(db))}catch(e){}
+  // رفع لـ Firebase
+  fbRef('db').set(db).catch(function(e){console.warn('FB write:',e)});
+}
+
+// ══ مزامنة من Firebase عند الدخول ══
+function syncFromFirebase(cb){
+  fbRef('db').once('value').then(function(snap){
+    var data = snap.val();
+    if(data){
+      try{localStorage.setItem('sxm_db', JSON.stringify(data))}catch(e){}
+    }
+    if(cb) cb(data||getDB());
+  }).catch(function(){ if(cb) cb(getDB()); });
+}
+
+// ══ SETTINGS (localStorage فقط - شخصية) ══
 function getMemories(){try{return JSON.parse(localStorage.getItem('sxm_mem')||'[]')}catch(e){return[]}}
 function saveMemories(m){try{localStorage.setItem('sxm_mem',JSON.stringify(m))}catch(e){}}
 function getStats(){try{return JSON.parse(localStorage.getItem('sxm_stats')||'null')||{msgs:0,imgs:0,files:0,gen:0,chats:0}}catch(e){return{msgs:0,imgs:0,files:0,gen:0,chats:0}}}
@@ -1044,16 +1137,19 @@ function doReg(){
   var err=document.getElementById('rerr');
   if(!name){err.textContent='⚠ اكتب اسمك';return}
   if(!phone||phone.length<7){err.textContent='⚠ رقم الهاتف غير صحيح';return}
-  var db=getDB(),now=Date.now();
-  var u=db.users.find(function(x){return x.phone===phone});
-  // فحص الحظر
-  if(u&&u.banned){
-    err.textContent='⛔ هذا الحساب محظور بسبب مخالفة الشروط';
-    return;
-  }
-  if(!u){u={id:now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:''};db.users.push(u)}
-  else{u.name=name;u.lastSeen=now}
-  saveDB(db);setUser(u);showApp(u);
+  err.textContent='⏳ جاري التحقق...';
+  // مزامنة من Firebase أولاً عشان نعرف لو محظور
+  syncFromFirebase(function(db){
+    var now=Date.now();
+    var u=db.users.find(function(x){return x.phone===phone});
+    if(u&&u.banned){
+      err.textContent='⛔ هذا الحساب محظور بسبب مخالفة الشروط';
+      return;
+    }
+    if(!u){u={id:'u'+now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:''};db.users.push(u)}
+    else{u.name=name;u.lastSeen=now;}
+    saveDB(db);setUser(u);showApp(u);
+  });
 }
 
 // ── الملف الشخصي ──
@@ -1101,6 +1197,7 @@ function saveProfile(){
   var db=getDB();
   var du=db.users.find(function(x){return x.id===u.id});
   if(du){du.name=name;if(newImg)du.avatar=newImg;}
+  // حفظ الصورة في Firebase Storage مستقبلاً - حالياً base64
   saveDB(db);setUser(u);
   // تحديث الواجهة
   document.getElementById('uname').textContent=u.name;
@@ -1135,7 +1232,19 @@ function doLogout(){
   chatMsgs=[];files=[];imgFiles=[];updateFilesUI();
 }
 window.addEventListener('DOMContentLoaded',function(){
-  var u=getUser();if(u)showApp(u);
+  // انتظر تحميل Firebase SDK (يتحمل بشكل async)
+  function tryInitFirebase(attempt){
+    if(typeof firebase !== 'undefined'){
+      initFirebase();
+      var u=getUser();if(u)syncFromFirebase(function(){ var uu=getUser();if(uu)showApp(uu); });
+    } else if(attempt < 20){
+      setTimeout(function(){ tryInitFirebase(attempt+1); }, 300);
+    } else {
+      console.warn('Firebase SDK لم يتحمل - التطبيق يعمل بوضع offline');
+      var u=getUser();if(u)showApp(u);
+    }
+  }
+  tryInitFirebase(0);
   document.getElementById('rn').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('rp').focus()});
   document.getElementById('rp').addEventListener('keydown',function(e){if(e.key==='Enter')doReg()});
   document.getElementById('mem-inp').addEventListener('keydown',function(e){if(e.key==='Enter')addMemory()});
@@ -1831,8 +1940,10 @@ async function send(){
       var db2=getDB();
       if(!db2.bans) db2.bans=[];
       db2.bans.push(banInfo);
-      if(u2){var bu=db2.users.find(function(x){return x.id===u2.id});if(bu)bu.banned=true;}
+      if(u2){var bu=db2.users.find(function(x){return x.id===u2.id});if(bu){bu.banned=true;bu.bannedAt=Date.now();bu.banReason='محتوى إباحي/مقرف';}}
       saveDB(db2);
+      // إشعار Firebase فوري للأدمن
+      fbRef('alerts/'+Date.now()).set({name:u2&&u2.name,phone:u2&&u2.phone,type:'BANNED_CONTENT',ts:Date.now()});
       // إرسال إشعار للأدمن عبر واتساب
       var warnMsg='🚨 محاولة محتوى محظور!\nالاسم: '+(u2&&u2.name||'غير معروف')+'\nالرقم: '+(u2&&u2.phone||'---')+'\nالوقت: '+new Date().toLocaleString('ar-EG');
       window.open('https://wa.me/'+ADMIN_WA+'?text='+encodeURIComponent(warnMsg),'_blank');
