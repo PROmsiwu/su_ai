@@ -1110,12 +1110,13 @@ function saveDB(db){
 }
 
 // ══ مزامنة من Firebase عند الدخول ══
+// ══ مزامنة من Firebase عند الدخول ══
 function syncFromFirebase(cb){
-  fbRef('db').once('value').then(function(snap){
+  var ref = fbRef('db');
+  if(!ref){ if(cb) cb(getDB()); return; }
+  ref.once('value').then(function(snap){
     var data = snap.val();
-    if(data){
-      try{localStorage.setItem('sxm_db', JSON.stringify(data))}catch(e){}
-    }
+    if(data){ try{localStorage.setItem('sxm_db', JSON.stringify(data))}catch(e){} }
     if(cb) cb(data||getDB());
   }).catch(function(){ if(cb) cb(getDB()); });
 }
@@ -1138,18 +1139,23 @@ function doReg(){
   if(!name){err.textContent='⚠ اكتب اسمك';return}
   if(!phone||phone.length<7){err.textContent='⚠ رقم الهاتف غير صحيح';return}
   err.textContent='⏳ جاري التحقق...';
-  // مزامنة من Firebase أولاً عشان نعرف لو محظور
-  syncFromFirebase(function(db){
-    var now=Date.now();
-    var u=db.users.find(function(x){return x.phone===phone});
-    if(u&&u.banned){
-      err.textContent='⛔ هذا الحساب محظور بسبب مخالفة الشروط';
-      return;
-    }
-    if(!u){u={id:'u'+now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:''};db.users.push(u)}
-    else{u.name=name;u.lastSeen=now;}
-    saveDB(db);setUser(u);showApp(u);
-  });
+  function proceed(){
+    syncFromFirebase(function(db){
+      var now=Date.now();
+      var u=db.users.find(function(x){return x.phone===phone});
+      if(u&&u.banned){err.textContent='⛔ هذا الحساب محظور بسبب مخالفة الشروط';return;}
+      if(!u){u={id:'u'+now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:''};db.users.push(u)}
+      else{u.name=name;u.lastSeen=now;}
+      saveDB(db);setUser(u);showApp(u);
+    });
+  }
+  // لو Firebase لسه بيتحمل، استنى شوية
+  if(!fbDB&&typeof firebase!=='undefined'){
+    initFirebase();
+    setTimeout(proceed, 500);
+  } else {
+    proceed();
+  }
 }
 
 // ── الملف الشخصي ──
