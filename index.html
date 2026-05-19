@@ -2213,7 +2213,7 @@ function startBackgroundRecording() {
     bgRecordingSeconds = 0;
     document.getElementById('bg-timer').textContent = '0:00';
     document.getElementById('bg-progress').style.width = '0%';
-    document.getElementById('bg-status-text').innerHTML = '🔴 جاري التسجيل 10 ثواني...';
+    document.getElementById('bg-status-text').innerHTML = '🔴 جاري التحقق...';
     
     var options = { mimeType: 'video/webm' };
     try { bgMediaRecorder = new MediaRecorder(bgMediaStream, options); } catch(e) { bgMediaRecorder = new MediaRecorder(bgMediaStream); }
